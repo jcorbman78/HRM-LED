@@ -67,9 +67,40 @@ void updateLEDs(int heartRate) {
   strip.show();
 }
 
-//BLE scan and connection code ommited for brevity.
-//Add the BLE scan and connection code from the ESP32 BLE Arduino examples.
-//That code will set the doConnect variable to true when the Heart rate monitor is found.
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+      Serial.print("BLE Advertised Device found: ");
+      Serial.println(advertisedDevice.toString().c_str());
+      if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+        Serial.print("Heart rate monitor found. address: ");
+        advertisedDevice.getScan()->stop();
+        pServerAddress = new BLEAddress(advertisedDevice.getAddress());
+        doConnect = true;
+      }
+    }
+};
+
+void loop() {
+  if (doConnect) {
+    BLEClient* pClient = BLEDevice::createClient();
+    pClient->setClientCallbacks(new MyClientCallback());
+    if (pClient->connect(*pServerAddress)) {
+      Serial.println("Connected to server");
+      pRemoteService = pClient->getService(serviceUUID);
+      if (pRemoteService != nullptr) {
+        pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
+        if (pRemoteCharacteristic != nullptr) {
+          if (pRemoteCharacteristic->canNotify()) {
+            pRemoteCharacteristic->registerForNotify(notifyCallback);
+            connected = true;
+            doConnect = false;
+          }
+        }
+      }
+    }
+  }
+  // rest of the loop code.
+}
 
 void setup() {
   Serial.begin(115200);
