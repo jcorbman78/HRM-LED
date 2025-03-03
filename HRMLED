@@ -1,0 +1,104 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN 4
+#define LED_COUNT 30
+
+Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// Heart Rate Monitor Service and Characteristic UUIDs (You may need to adjust these)
+static BLEUUID serviceUUID("180D"); // Heart Rate Service UUID
+static BLEUUID charUUID("2A37");  // Heart Rate Measurement Characteristic UUID
+
+static boolean doConnect = false;
+static boolean connected = false;
+static boolean doScan = false;
+static BLERemoteCharacteristic* pRemoteCharacteristic;
+static BLERemoteService* pRemoteService;
+
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+    connected = true;
+  }
+
+  void onDisconnect(BLEClient* pclient) {
+    connected = false;
+    Serial.println("Disconnected");
+  }
+};
+
+static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  if (length > 1) {
+    int heartRate = pData[1]; // Heart rate is in the second byte
+    Serial.print("Heart Rate: ");
+    Serial.println(heartRate);
+    updateLEDs(heartRate);
+  }
+}
+
+int getHeartRateZone(int heartRate) {
+  if (heartRate <= 108) return 1;
+  if (heartRate <= 134) return 2;
+  if (heartRate <= 146) return 3;
+  if (heartRate <= 154) return 4;
+  return 5;
+}
+
+uint32_t getZoneColor(int zone) {
+  switch (zone) {
+    case 1: return strip.Color(0, 255, 0); // Green
+    case 2: return strip.Color(0, 0, 255); // Blue
+    case 3: return strip.Color(255, 255, 0); // Yellow
+    case 4: return strip.Color(255, 165, 0); // Orange
+    case 5: return strip.Color(255, 0, 0); // Red
+    default: return strip.Color(0, 0, 0);
+  }
+}
+
+void updateLEDs(int heartRate) {
+  int zone = getHeartRateZone(heartRate);
+  uint32_t color = getZoneColor(zone);
+  for (int i = 0; i < LED_COUNT; i++) {
+    strip.setPixelColor(i, color);
+  }
+  strip.show();
+}
+
+//BLE scan and connection code ommited for brevity.
+//Add the BLE scan and connection code from the ESP32 BLE Arduino examples.
+//That code will set the doConnect variable to true when the Heart rate monitor is found.
+
+void setup() {
+  Serial.begin(115200);
+  strip.begin();
+  strip.show();
+  BLEDevice::init("ESP32_HR_LED");
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(30);
+
+}
+
+void loop() {
+  if (doConnect == true) {
+    //Connect to the BLE device.
+    //Get the remote service.
+    //Get the remote characteristic.
+    //Set the notify callback.
+    //Enable notifications.
+    doConnect = false;
+  }
+  if (connected) {
+    pRemoteCharacteristic->readValue();
+  } else if (doScan) {
+    BLEScanResults foundDevices = pBLEScan->start(30);
+    Serial.print("Devices found: ");
+    Serial.println(foundDevices.getCount());
+    doScan = false;
+  }
+  delay(1000);
+} 
