@@ -9,15 +9,15 @@
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// Heart Rate Monitor Service and Characteristic UUIDs (You may need to adjust these)
-static BLEUUID serviceUUID("180D"); // Heart Rate Service UUID
-static BLEUUID charUUID("2A37");  // Heart Rate Measurement Characteristic UUID
+static BLEUUID serviceUUID("180D");
+static BLEUUID charUUID("2A37");
 
 static boolean doConnect = false;
 static boolean connected = false;
 static boolean doScan = false;
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLERemoteService* pRemoteService;
+static BLEAddress* pServerAddress; // Global declaration
 
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
@@ -32,7 +32,7 @@ class MyClientCallback : public BLEClientCallbacks {
 
 static void notifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
   if (length > 1) {
-    int heartRate = pData[1]; // Heart rate is in the second byte
+    int heartRate = pData[1];
     Serial.print("Heart Rate: ");
     Serial.println(heartRate);
     updateLEDs(heartRate);
@@ -49,11 +49,11 @@ int getHeartRateZone(int heartRate) {
 
 uint32_t getZoneColor(int zone) {
   switch (zone) {
-    case 1: return strip.Color(0, 255, 0); // Green
-    case 2: return strip.Color(0, 0, 255); // Blue
-    case 3: return strip.Color(255, 255, 0); // Yellow
-    case 4: return strip.Color(255, 165, 0); // Orange
-    case 5: return strip.Color(255, 0, 0); // Red
+    case 1: return strip.Color(0, 255, 0);
+    case 2: return strip.Color(0, 0, 255);
+    case 3: return strip.Color(255, 255, 0);
+    case 4: return strip.Color(255, 165, 0);
+    case 5: return strip.Color(255, 0, 0);
     default: return strip.Color(0, 0, 0);
   }
 }
@@ -68,17 +68,28 @@ void updateLEDs(int heartRate) {
 }
 
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      Serial.print("BLE Advertised Device found: ");
-      Serial.println(advertisedDevice.toString().c_str());
-      if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
-        Serial.print("Heart rate monitor found. address: ");
-        advertisedDevice.getScan()->stop();
-        pServerAddress = new BLEAddress(advertisedDevice.getAddress());
-        doConnect = true;
-      }
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    Serial.print("BLE Advertised Device found: ");
+    Serial.println(advertisedDevice.toString().c_str());
+    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+      Serial.print("Heart rate monitor found. address: ");
+      advertisedDevice.getScan()->stop();
+      pServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      doConnect = true;
     }
+  }
 };
+
+void setup() {
+  Serial.begin(115200);
+  strip.begin();
+  strip.show();
+  BLEDevice::init("ESP32_HR_LED");
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(30);
+}
 
 void loop() {
   if (doConnect) {
@@ -99,34 +110,11 @@ void loop() {
       }
     }
   }
-  // rest of the loop code.
-}
 
-void setup() {
-  Serial.begin(115200);
-  strip.begin();
-  strip.show();
-  BLEDevice::init("ESP32_HR_LED");
-  BLEScan* pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-  pBLEScan->setActiveScan(true);
-  pBLEScan->start(30);
-
-}
-
-void loop() {
-  if (doConnect == true) {
-    //Connect to the BLE device.
-    //Get the remote service.
-    //Get the remote characteristic.
-    //Set the notify callback.
-    //Enable notifications.
-    doConnect = false;
-  }
   if (connected) {
     pRemoteCharacteristic->readValue();
   } else if (doScan) {
-    BLEScanResults foundDevices = pBLEScan->start(30);
+    BLEScanResults foundDevices = *BLEDevice::getScan()->start(30); // Dereferenced here
     Serial.print("Devices found: ");
     Serial.println(foundDevices.getCount());
     doScan = false;
