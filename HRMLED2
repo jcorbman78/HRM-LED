@@ -14,7 +14,7 @@ static BLEUUID charUUID("2A37");
 
 static boolean doConnect = false;
 static boolean connected = false;
-static boolean doScan = false;
+static boolean doScan = true; // Start scanning immediately
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLERemoteService* pRemoteService;
 static BLEAddress* pServerAddress; // Global declaration
@@ -22,10 +22,13 @@ static BLEAddress* pServerAddress; // Global declaration
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
     connected = true;
+    doScan = false; // Stop scanning when connected
+    Serial.println("Connected");
   }
 
   void onDisconnect(BLEClient* pclient) {
     connected = false;
+    doScan = true; // Start scanning when disconnected
     Serial.println("Disconnected");
   }
 };
@@ -92,6 +95,9 @@ void setup() {
 }
 
 void loop() {
+  unsigned long lastScanBlink = 0;
+  const long scanBlinkInterval = 500; // 500 milliseconds (adjust as needed)
+
   if (doConnect) {
     BLEClient* pClient = BLEDevice::createClient();
     pClient->setClientCallbacks(new MyClientCallback());
@@ -114,10 +120,24 @@ void loop() {
   if (connected) {
     pRemoteCharacteristic->readValue();
   } else if (doScan) {
-    BLEScanResults foundDevices = *BLEDevice::getScan()->start(30); // Dereferenced here
-    Serial.print("Devices found: ");
-    Serial.println(foundDevices.getCount());
-    doScan = false;
+    if(millis() - lastScanBlink >= scanBlinkInterval){
+      scanBlink();
+      lastScanBlink = millis();
+    }
   }
-  delay(1000);
+
+  delay(10); // Small delay to prevent watchdog issues
+}
+
+void scanBlink() {
+  for (int i = 0; i < LED_COUNT; i++) {
+    strip.setPixelColor(i, 0, 0, 255); // Blue
+  }
+  strip.show();
+  delay(250);
+  for (int i = 0; i < LED_COUNT; i++) {
+    strip.setPixelColor(i, 0, 0, 0); // Off
+  }
+  strip.show();
+  delay(250);
 }
