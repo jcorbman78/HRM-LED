@@ -1,0 +1,47 @@
+#include <FastLED.h>
+
+#define NUM_LEDS 60 // Adjust to your LED strip length
+#define DATA_PIN 2   // Adjust to your ESP32 data pin
+#define CHECKER_SIZE 4 // Adjust checker size (number of LEDs per square)
+
+CRGB leds[NUM_LEDS];
+
+void setup() {
+  FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+  FastLED.setBrightness(50); // Adjust brightness as needed
+}
+
+void loop() {
+  static uint8_t hue = 0;
+  static uint8_t brightness = 0;
+  static bool fadeUp = true;
+
+  // Fade in and out the brightness
+  if (fadeUp) {
+    brightness++;
+    if (brightness == 255) {
+      fadeUp = false;
+    }
+  } else {
+    brightness--;
+    if (brightness == 0) {
+      fadeUp = true;
+      hue += 5; // Change hue when brightness cycle completes.
+    }
+  }
+
+  // Create checker pattern
+  for (int i = 0; i < NUM_LEDS; i++) {
+    int x = i / CHECKER_SIZE;
+    int y = i % CHECKER_SIZE;
+
+    if ((x % 2 == 0 && y % 2 == 0) || (x % 2 != 0 && y % 2 != 0)) {
+      leds[i] = CHSV(hue, 255, brightness); // On square
+    } else {
+      leds[i] = CRGB::Black; // Off square
+    }
+  }
+
+  FastLED.show();
+  delay(10); // Adjust delay for fade speed
+}
