@@ -1,6 +1,6 @@
 #include <FastLED.h>
 
-#define NUM_LEDS 60 // Adjust to your LED strip length
+#define NUM_LEDS 144 // Adjust to your LED strip length
 #define DATA_PIN 2   // Adjust to your ESP32 data pin
 #define CHECKER_SIZE 4 // Adjust checker size (number of LEDs per square)
 
