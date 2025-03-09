@@ -1,0 +1,194 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN 4
+#define TOTAL_LED_COUNT 288
+#define HR_LED_OFFSET 144
+#define SCAN_TIME 60
+#define RETRY_DELAY 5000
+
+// Power Zones
+#define ZONE_1 1
+#define ZONE_2 125
+#define ZONE_3 161
+#define ZONE_4 213
+#define ZONE_5 274
+#define ZONE_6 381
+
+// Heart Rate Zones
+#define HR_ZONE_1 1
+#define HR_ZONE_2 109
+#define HR_ZONE_3 135
+#define HR_ZONE_4 147
+#define HR_ZONE_5 155
+#define HR_ZONE_6 166
+
+Adafruit_NeoPixel strip(TOTAL_LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// BLE UUIDs
+BLEUUID hrServiceUUID("180D");
+BLEUUID hrCharUUID("2A37");
+BLEUUID powerServiceUUID("1818");
+BLEUUID powerCharUUID("2A63");
+
+// BLE Addresses
+BLEAddress targetPowerAddress("C9:35:6D:0D:51:03");
+
+// BLE Variables
+static boolean hrConnected = false;
+static boolean powerConnected = false;
+static BLERemoteCharacteristic* hrRemoteCharacteristic;
+static BLERemoteCharacteristic* powerRemoteCharacteristic;
+static BLEAddress* hrServerAddress = nullptr;
+static BLEAddress* powerServerAddress = nullptr;
+static bool scanningForPower = false;
+static bool scanningForHR = false;
+
+uint32_t getColorForPowerZone(int zone) {
+  // ... (color mapping) ...
+}
+
+uint32_t getColorForHRZone(int zone) {
+  // ... (color mapping) ...
+}
+
+int getPowerZone(int power) {
+  // ... (zone mapping) ...
+}
+
+int getHeartRateZone(int heartRate) {
+  // ... (zone mapping) ...
+}
+
+static void hrNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  // ... (heart rate notify callback) ...
+}
+
+static void powerNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  // ... (power notify callback) ...
+}
+
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+    // ... (connection handling) ...
+  }
+
+  void onDisconnect(BLEClient* pclient) {
+    // ... (disconnection handling) ...
+  }
+};
+
+void connectToPower(); // Declaration
+
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    // ... (device discovery and connection initiation) ...
+    if (advertisedDevice.isAdvertisingService(hrServiceUUID) && hrServerAddress == nullptr) {
+      Serial.println("HR Device Found");
+      hrServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      advertisedDevice.getScan()->stop();
+      scanningForHR = false;
+      connectToHR();
+    } else if (advertisedDevice.getAddress() == targetPowerAddress && powerServerAddress == nullptr) {
+      Serial.println("Power Device Found");
+      powerServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      advertisedDevice.getScan()->stop();
+      scanningForPower = false;
+      connectToPower();
+    }
+  }
+};
+
+void connectToHR() {
+  if (hrServerAddress == nullptr) return;
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->setClientCallbacks(new MyClientCallback());
+  if (pClient->connect(*hrServerAddress)) {
+    BLERemoteService* pRemoteService = pClient->getService(hrServiceUUID);
+    if (pRemoteService) {
+      hrRemoteCharacteristic = pRemoteService->getCharacteristic(hrCharUUID);
+      if (hrRemoteCharacteristic) {
+        hrRemoteCharacteristic->registerForNotify(hrNotifyCallback);
+        Serial.println("HR Characteristic Found");
+      } else {
+        Serial.println("Error: HR Characteristic not found");
+      }
+    } else {
+      Serial.println("Error: HR Service not found");
+    }
+  } else {
+    Serial.println("Error: Could not connect to HR device");
+  }
+}
+
+void connectToPower() {
+  if (powerServerAddress == nullptr) return;
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->setClientCallbacks(new MyClientCallback());
+  if (pClient->connect(*powerServerAddress)) {
+    BLERemoteService* pRemoteService = pClient->getService(powerServiceUUID);
+    if (pRemoteService) {
+      powerRemoteCharacteristic = pRemoteService->getCharacteristic(powerCharUUID);
+      if (powerRemoteCharacteristic) {
+        powerRemoteCharacteristic->registerForNotify(powerNotifyCallback);
+        Serial.println("Power Characteristic Found");
+      } else {
+        Serial.println("Error: Power Characteristic not found");
+      }
+    } else {
+      Serial.println("Error: Power Service not found");
+    }
+  } else {
+    Serial.println("Error: Could not connect to Power device");
+  }
+}
+
+void scanBlink(bool powerScan) {
+  // ... (scan blink with correct color extraction) ...
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting BLE work!");
+  strip.begin();
+  strip.show();
+
+  BLEDevice::init("ESP32-NeoPixel");
+  scanningForPower = true;
+  scanningForHR = true;
+}
+
+void loop() {
+  if (scanningForPower || scanningForHR) {
+    BLEScan* pBLEScan = BLEDevice::getScan();
+    pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+    pBLEScan->setActiveScan(true);
+    pBLEScan->start(SCAN_TIME);
+
+    if (scanningForPower) {
+      scanBlink(true);
+    }
+    if (scanningForHR) {
+      scanBlink(false);
+    }
+  }
+
+  if (!hrConnected) {
+    if (hrServerAddress != nullptr) {
+      connectToHR();
+      delay(RETRY_DELAY);
+    }
+  }
+
+  if (!powerConnected) {
+    if (powerServerAddress != nullptr) {
+      connectToPower();
+      delay(RETRY_DELAY);
+    }
+  }
+
+  delay(100);
+}
