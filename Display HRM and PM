@@ -1,0 +1,202 @@
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+#include <Adafruit_NeoPixel.h>
+
+#define LED_PIN 4
+#define TOTAL_LED_COUNT 288
+#define HR_LED_OFFSET 144
+#define SCAN_TIME 60
+#define RETRY_DELAY 5000
+
+// Power Zones
+#define ZONE_1 1
+#define ZONE_2 125
+#define ZONE_3 160
+#define ZONE_4 212
+#define ZONE_5 273
+#define ZONE_6 380
+
+Adafruit_NeoPixel strip(TOTAL_LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+// BLE UUIDs
+BLEUUID hrServiceUUID("180D"); // Heart Rate Service
+BLEUUID hrCharUUID("2A37");  // Heart Rate Measurement Characteristic
+BLEUUID powerServiceUUID("1818"); // Cycling Power Service
+BLEUUID powerCharUUID("2A63");  // Cycling Power Measurement Characteristic
+
+// BLE Addresses
+BLEAddress targetPowerAddress("C9:35:6D:0D:51:03");
+
+// BLE Variables
+static boolean hrConnected = false;
+static boolean powerConnected = false;
+static BLERemoteCharacteristic* hrRemoteCharacteristic;
+static BLERemoteCharacteristic* powerRemoteCharacteristic;
+static BLEAddress* hrServerAddress = nullptr;
+static BLEAddress* powerServerAddress = nullptr;
+
+// Color Mapping
+uint32_t getColorForZone(int zone) {
+  switch (zone) {
+    case 1: return strip.Color(138, 43, 226); // Violet
+    case 2: return strip.Color(0, 0, 255);    // Blue
+    case 3: return strip.Color(0, 255, 0);    // Green
+    case 4: return strip.Color(255, 255, 0);  // Yellow
+    case 5: return strip.Color(255, 165, 0);  // Orange
+    case 6: return strip.Color(255, 0, 0);    // Red
+    default: return strip.Color(0, 0, 0);
+  }
+}
+
+// Heart Rate Zone Mapping
+int getHeartRateZone(int heartRate) {
+  if (heartRate <= 108) return 1;
+  if (heartRate <= 134) return 2;
+  if (heartRate <= 146) return 3;
+  if (heartRate <= 154) return 4;
+  return 5;
+}
+
+// Power Zone Mapping
+int getPowerZone(int power) {
+  if (power < ZONE_2) return 1;
+  if (power < ZONE_3) return 2;
+  if (power < ZONE_4) return 3;
+  if (power < ZONE_5) return 4;
+  if (power < ZONE_6) return 5;
+  return 6;
+}
+
+// Notify Callbacks
+static void hrNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  if (length > 1) {
+    int heartRate = pData[1];
+    int zone = getHeartRateZone(heartRate);
+    uint32_t color = getColorForZone(zone);
+    for (int i = HR_LED_OFFSET; i < TOTAL_LED_COUNT; i += 2) {
+      strip.setPixelColor(i, color);
+    }
+    strip.show();
+  }
+}
+
+static void powerNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  if (length >= 4) {
+    int16_t power = (pData[3] << 8) | pData[2];
+    int zone = getPowerZone(power);
+    uint32_t color = getColorForZone(zone);
+    for (int i = 0; i < HR_LED_OFFSET; i++) {
+      strip.setPixelColor(i, color);
+    }
+    strip.show();
+  }
+}
+
+// BLE Client Callbacks
+class MyClientCallback : public BLEClientCallbacks {
+  void onConnect(BLEClient* pclient) {
+    if (pclient->getService(hrServiceUUID)) {
+      hrConnected = true;
+      Serial.println("HR Client Connected");
+    } else if (pclient->getService(powerServiceUUID)) {
+      powerConnected = true;
+      Serial.println("Power Client Connected");
+    }
+  }
+
+  void onDisconnect(BLEClient* pclient) {
+    if (pclient->getService(hrServiceUUID)) {
+      hrConnected = false;
+      Serial.println("HR Client Disconnected");
+    } else if (pclient->getService(powerServiceUUID)) {
+      powerConnected = false;
+      Serial.println("Power Client Disconnected");
+    }
+  }
+};
+
+// BLE Scan Callbacks
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    Serial.print("BLE Advertised Device found: ");
+    Serial.println(advertisedDevice.toString().c_str());
+
+    if (advertisedDevice.isAdvertisingService(hrServiceUUID) && hrServerAddress == nullptr) {
+      Serial.println("HR Device Found");
+      hrServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      advertisedDevice.getScan()->stop();
+      connectToHR();
+    } else if (advertisedDevice.getAddress() == targetPowerAddress && powerServerAddress == nullptr) {
+      Serial.println("Power Device Found");
+      powerServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      advertisedDevice.getScan()->stop();
+      connectToPower();
+    }
+  }
+};
+
+void connectToHR() {
+  if (hrServerAddress == nullptr) return;
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->setClientCallbacks(new MyClientCallback());
+  if (pClient->connect(*hrServerAddress)) {
+    BLERemoteService* pRemoteService = pClient->getService(hrServiceUUID);
+    if (pRemoteService) {
+      hrRemoteCharacteristic = pRemoteService->getCharacteristic(hrCharUUID);
+      if (hrRemoteCharacteristic) {
+        hrRemoteCharacteristic->registerForNotify(hrNotifyCallback);
+      }
+    }
+  }
+}
+
+void connectToPower() {
+  if (powerServerAddress == nullptr) return;
+  BLEClient* pClient = BLEDevice::createClient();
+  pClient->setClientCallbacks(new MyClientCallback());
+  if (pClient->connect(*powerServerAddress)) {
+    BLERemoteService* pRemoteService = pClient->getService(powerServiceUUID);
+    if (pRemoteService) {
+      powerRemoteCharacteristic = pRemoteService->getCharacteristic(powerCharUUID);
+      if (powerRemoteCharacteristic) {
+        powerRemoteCharacteristic->registerForNotify(powerNotifyCallback);
+      }
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  strip.begin();
+  strip.show();
+
+  BLEDevice::init("ESP32_HR_Power_LED");
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(SCAN_TIME);
+}
+
+void loop() {
+  if (!hrConnected) {
+    if(hrServerAddress != nullptr){
+        connectToHR();
+        delay(RETRY_DELAY);
+    }
+    else {
+        BLEDevice::getScan()->start(SCAN_TIME);
+    }
+  }
+  if (!powerConnected) {
+    if(powerServerAddress != nullptr){
+        connectToPower();
+        delay(RETRY_DELAY);
+    }
+    else {
+      BLEDevice::getScan()->start(SCAN_TIME);
+    }
+  }
+  delay(1000); // Check every second.
+}
